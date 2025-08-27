@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"image/color"
 
+	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/gopxl/glhf/v2"
 	"github.com/gopxl/mainthread/v2"
-	"github.com/gopxl/pixel/v2"
 	"github.com/pkg/errors"
+
+	"github.com/gopxl/pixel/v2"
 )
 
 // Canvas is an off-screen rectangular BasicTarget and Picture at the same time, that you can draw
@@ -184,6 +186,8 @@ func setBlendFunc(cmp pixel.ComposeMethod) {
 		glhf.BlendFunc(glhf.One, glhf.One)
 	case pixel.ComposeCopy:
 		glhf.BlendFunc(glhf.One, glhf.Zero)
+	case pixel.ComposeMultiply:
+		glhf.BlendFunc(glhf.BlendFactor(gl.DST_COLOR), glhf.Zero)
 	default:
 		panic(errors.New("Canvas: invalid compose method"))
 	}

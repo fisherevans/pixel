@@ -27,6 +27,7 @@ const (
 	ComposeXor
 	ComposePlus
 	ComposeCopy
+	ComposeMultiply
 )
 
 // Compose composes two colors together according to the ComposeMethod. A is the foreground, B is
@@ -57,6 +58,34 @@ func (cm ComposeMethod) Compose(a, b RGBA) RGBA {
 		fa, fb = 1, 1
 	case ComposeCopy:
 		fa, fb = 1, 0
+	case ComposeMultiply:
+		sa, da := a.A, b.A
+
+		// term1: backdrop where source is transparent
+		cr := b.R * (1 - sa)
+		cg := b.G * (1 - sa)
+		cb := b.B * (1 - sa)
+
+		// term2: source where backdrop is transparent
+		cr += a.R * (1 - da)
+		cg += a.G * (1 - da)
+		cb += a.B * (1 - da)
+
+		// blended term: multiply of unpremultiplied colors, then re-premultiply by Sa*Da
+		if sa > 0 && da > 0 {
+			// unpremultiply
+			asr, asg, asb := a.R/sa, a.G/sa, a.B/sa
+			bsr, bsg, bsb := b.R/da, b.G/da, b.B/da
+			cr += (asr * bsr) * sa * da
+			cg += (asg * bsg) * sa * da
+			cb += (asb * bsb) * sa * da
+		}
+
+		ao := sa + da - sa*da
+		// (optional) clamp to [0,1]
+		// cr = math.Min(1, math.Max(0, cr)) ... same for cg, cb, ao
+
+		return RGBA{R: cr, G: cg, B: cb, A: ao}
 	default:
 		panic(errors.New("Compose: invalid ComposeMethod"))
 	}
