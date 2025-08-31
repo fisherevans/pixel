@@ -31,6 +31,10 @@ type gsUniformAttr struct {
 	Type      glhf.AttrType
 	value     interface{}
 	ispointer bool
+
+	isSampler bool
+	tex       *glhf.Texture
+	unit      int
 }
 
 const (
@@ -55,7 +59,7 @@ var defaultCanvasVertexFormat = glhf.AttrFormat{
 func NewGLShader(fragmentShader string) *GLShader {
 	gs := &GLShader{
 		vf: defaultCanvasVertexFormat,
-		vs: baseCanvasVertexShader,
+		vs: BaseCanvasVertexShader,
 		fs: fragmentShader,
 	}
 
@@ -120,6 +124,7 @@ func (gs *GLShader) SetUniform(name string, value interface{}) {
 		gs.uniforms[loc].Type = t
 		gs.uniforms[loc].ispointer = p
 		gs.uniforms[loc].value = value
+		gs.uniforms[loc].isSampler = false
 		return
 	}
 	gs.uniforms = append(gs.uniforms, gsUniformAttr{
@@ -128,6 +133,30 @@ func (gs *GLShader) SetUniform(name string, value interface{}) {
 		ispointer: p,
 		value:     value,
 	})
+}
+
+func (gs *GLShader) SetUniformTexture(name string, tex *glhf.Texture, unit int) {
+	unit32 := int32(unit)
+	t, p := getAttrType(unit32)
+	if idx := gs.getUniform(name); idx > -1 {
+		gs.uniforms[idx].Type = t
+		gs.uniforms[idx].value = unit32
+		gs.uniforms[idx].ispointer = p
+		gs.uniforms[idx].isSampler = true
+		gs.uniforms[idx].tex = tex
+		gs.uniforms[idx].unit = unit
+		return
+	} else {
+		gs.uniforms = append(gs.uniforms, gsUniformAttr{
+			Name:      name,
+			Type:      t,
+			value:     unit32,
+			ispointer: p,
+			isSampler: true,
+			tex:       tex,
+			unit:      unit,
+		})
+	}
 }
 
 // Value returns the attribute's concrete value. If the stored value
@@ -235,7 +264,7 @@ func getAttrType(v interface{}) (glhf.AttrType, bool) {
 	}
 }
 
-var baseCanvasVertexShader = `
+var BaseCanvasVertexShader = `
 #version 330 core
 
 in vec2  aPosition;
@@ -267,7 +296,7 @@ void main() {
 }
 `
 
-var baseCanvasFragmentShader = `
+var BaseCanvasFragmentShader = `
 #version 330 core
 
 in vec4  vColor;
