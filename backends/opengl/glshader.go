@@ -1,6 +1,8 @@
 package opengl
 
 import (
+	"fmt"
+
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/gopxl/glhf/v2"
 	"github.com/gopxl/mainthread/v2"
@@ -260,7 +262,10 @@ func getAttrType(v interface{}) (glhf.AttrType, bool) {
 	case *float32:
 		return glhf.Float, true
 	default:
-		panic("invalid AttrType")
+		if v == nil {
+			panic("invalid AttrType (nil)")
+		}
+		panic(fmt.Sprintf("invalid AttrType: %T value=%#v", v, v))
 	}
 }
 
