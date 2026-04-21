@@ -6,13 +6,11 @@ import (
 	"time"
 
 	"github.com/gopxl/pixel/v2"
-	"github.com/gopxl/pixel/v2/backends/internal"
 )
 
 // Input state is tracked via the same InputHandler the desktop backend uses;
-// DOM event listeners (installed by Window.initInput in M4) feed it through
-// ButtonEvent/CharEvent. Until then the listeners are empty and every query
-// reports "not pressed".
+// DOM event listeners installed by Window.initInput feed it through
+// ButtonEvent / CharEvent / MouseMoveEvent / MouseScrollEvent.
 
 func (w *Window) Pressed(button pixel.Button) bool      { return w.input.Curr.Buttons[button] }
 func (w *Window) JustPressed(button pixel.Button) bool  { return w.input.PressEvents[button] }
@@ -27,8 +25,6 @@ func (w *Window) MouseScroll() pixel.Vec           { return w.input.Curr.Scroll 
 func (w *Window) MousePreviousScroll() pixel.Vec   { return w.input.Prev.Scroll }
 func (w *Window) Typed() string                    { return w.input.Curr.Typed }
 
-// SetButtonCallback / SetCharCallback / mouse callbacks exist so game code
-// compiles unchanged; the WASM backend does not fire them yet.
 func (w *Window) SetButtonCallback(cb func(win *Window, button pixel.Button, action pixel.Action)) {
 	w.buttonCallback = cb
 }
@@ -44,8 +40,9 @@ func (w *Window) SetScrollCallback(cb func(win *Window, scroll pixel.Vec)) {
 }
 
 // UpdateInput commits the pending input events for the next frame.
-func (w *Window) UpdateInput()                            { w.input.Update() }
-func (w *Window) UpdateInputWait(timeout time.Duration)   { w.input.Update() }
+func (w *Window) UpdateInput() { w.input.Update() }
 
-// Ensure internal package is referenced to avoid unused-import lint.
-var _ = internal.InputHandler{}
+// UpdateInputWait commits pending events. The timeout argument is accepted for
+// API parity with the desktop backend but ignored under WASM — the browser
+// event loop delivers events asynchronously.
+func (w *Window) UpdateInputWait(timeout time.Duration) { w.input.Update() }

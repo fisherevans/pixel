@@ -119,9 +119,20 @@ var domCodeToButton = map[string]pixel.Button{
 	"ContextMenu":    pixel.KeyMenu,
 }
 
-// initInput installs DOM keyboard listeners on the canvas. Events are
-// translated into pixel.Button press/release/repeat on the shared
-// InputHandler; printable characters are appended to the Typed buffer.
+// domMouseButton maps MouseEvent.button to the pixel.Button constants.
+// Unmapped values yield ok=false.
+var domMouseButton = map[int]pixel.Button{
+	0: pixel.MouseButton1, // left
+	1: pixel.MouseButton3, // middle
+	2: pixel.MouseButton2, // right
+	3: pixel.MouseButton4, // back
+	4: pixel.MouseButton5, // forward
+}
+
+// initInput installs DOM keyboard and mouse listeners on the canvas. Events
+// are translated into pixel.Button press/release/repeat events and mouse
+// move/scroll events on the shared InputHandler; printable characters are
+// appended to the Typed buffer.
 func (w *Window) initInput() {
 	keyDown := js.FuncOf(func(this js.Value, args []js.Value) any {
 		if len(args) == 0 {
@@ -136,8 +147,10 @@ func (w *Window) initInput() {
 
 		if ev.Get("repeat").Bool() {
 			w.input.ButtonEvent(btn, pixel.Repeat)
+			w.fireButtonCallback(btn, pixel.Repeat)
 		} else {
 			w.input.ButtonEvent(btn, pixel.Press)
+			w.fireButtonCallback(btn, pixel.Press)
 		}
 
 		// Feed printable characters into Typed buffer. Browsers give us the
@@ -146,6 +159,9 @@ func (w *Window) initInput() {
 		key := ev.Get("key").String()
 		if r, ok := singleRune(key); ok {
 			w.input.CharEvent(r)
+			if w.charCallback != nil {
+				w.charCallback(w, r)
+			}
 		}
 
 		// Swallow default handling for game-consumed keys so the browser
@@ -167,6 +183,7 @@ func (w *Window) initInput() {
 			return nil
 		}
 		w.input.ButtonEvent(btn, pixel.Release)
+		w.fireButtonCallback(btn, pixel.Release)
 		if shouldPreventDefault(code) {
 			ev.Call("preventDefault")
 		}
@@ -179,12 +196,135 @@ func (w *Window) initInput() {
 		for _, btn := range domCodeToButton {
 			w.input.ButtonEvent(btn, pixel.Release)
 		}
+		for _, btn := range domMouseButton {
+			w.input.ButtonEvent(btn, pixel.Release)
+		}
+		return nil
+	})
+
+	mouseDown := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) == 0 {
+			return nil
+		}
+		ev := args[0]
+		btn, ok := domMouseButton[ev.Get("button").Int()]
+		if !ok {
+			return nil
+		}
+		// Prevent right-click context menu and middle-click autoscroll
+		// while the canvas has focus.
+		ev.Call("preventDefault")
+		w.input.ButtonEvent(btn, pixel.Press)
+		w.fireButtonCallback(btn, pixel.Press)
+		// Ensure subsequent keydown events continue to land on the canvas.
+		w.jsCanvas.Call("focus")
+		return nil
+	})
+
+	mouseUp := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) == 0 {
+			return nil
+		}
+		ev := args[0]
+		btn, ok := domMouseButton[ev.Get("button").Int()]
+		if !ok {
+			return nil
+		}
+		w.input.ButtonEvent(btn, pixel.Release)
+		w.fireButtonCallback(btn, pixel.Release)
+		return nil
+	})
+
+	mouseMove := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) == 0 {
+			return nil
+		}
+		pos := w.mousePosFromEvent(args[0])
+		w.input.MouseMoveEvent(pos)
+		if w.mouseMovedCallback != nil {
+			w.mouseMovedCallback(w, pos)
+		}
+		return nil
+	})
+
+	mouseEnter := js.FuncOf(func(this js.Value, args []js.Value) any {
+		w.input.MouseEnteredEvent(true)
+		if w.mouseEnteredCallback != nil {
+			w.mouseEnteredCallback(w, true)
+		}
+		return nil
+	})
+
+	mouseLeave := js.FuncOf(func(this js.Value, args []js.Value) any {
+		w.input.MouseEnteredEvent(false)
+		if w.mouseEnteredCallback != nil {
+			w.mouseEnteredCallback(w, false)
+		}
+		return nil
+	})
+
+	wheel := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) == 0 {
+			return nil
+		}
+		ev := args[0]
+		ev.Call("preventDefault")
+		// Browsers deliver wheel deltas in pixels (deltaMode=0) or lines/
+		// pages; we forward the raw pixel delta and let the caller scale it.
+		// Y is inverted so scrolling up yields a positive value, matching
+		// the desktop backend.
+		dx := ev.Get("deltaX").Float()
+		dy := -ev.Get("deltaY").Float()
+		w.input.MouseScrollEvent(dx, dy)
+		if w.scrollCallback != nil {
+			w.scrollCallback(w, pixel.V(dx, dy))
+		}
+		return nil
+	})
+
+	contextMenu := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) > 0 {
+			args[0].Call("preventDefault")
+		}
 		return nil
 	})
 
 	w.jsCanvas.Call("addEventListener", "keydown", keyDown)
 	w.jsCanvas.Call("addEventListener", "keyup", keyUp)
 	w.jsCanvas.Call("addEventListener", "blur", blur)
+	w.jsCanvas.Call("addEventListener", "mousedown", mouseDown)
+	w.jsCanvas.Call("addEventListener", "mouseup", mouseUp)
+	w.jsCanvas.Call("addEventListener", "mousemove", mouseMove)
+	w.jsCanvas.Call("addEventListener", "mouseenter", mouseEnter)
+	w.jsCanvas.Call("addEventListener", "mouseleave", mouseLeave)
+	w.jsCanvas.Call("addEventListener", "wheel", wheel, map[string]any{"passive": false})
+	w.jsCanvas.Call("addEventListener", "contextmenu", contextMenu)
+}
+
+// mousePosFromEvent converts a MouseEvent's clientX/Y (in CSS pixels,
+// relative to the viewport) into window-local coordinates in the backing
+// store's pixel space. Y is flipped so the origin is at the bottom-left,
+// matching the desktop backend.
+func (w *Window) mousePosFromEvent(ev js.Value) pixel.Vec {
+	rect := w.jsCanvas.Call("getBoundingClientRect")
+	cssX := ev.Get("clientX").Float() - rect.Get("left").Float()
+	cssY := ev.Get("clientY").Float() - rect.Get("top").Float()
+	cssW := rect.Get("width").Float()
+	cssH := rect.Get("height").Float()
+	if cssW <= 0 || cssH <= 0 {
+		return pixel.ZV
+	}
+	bounds := w.bounds
+	x := bounds.Min.X + (cssX/cssW)*bounds.W()
+	y := bounds.Min.Y + (1-cssY/cssH)*bounds.H()
+	return pixel.V(x, y)
+}
+
+// fireButtonCallback invokes the user-registered button callback if any.
+func (w *Window) fireButtonCallback(btn pixel.Button, action pixel.Action) {
+	if w.buttonCallback != nil {
+		w.buttonCallback(w, btn, action)
+	}
 }
 
 func singleRune(s string) (rune, bool) {
