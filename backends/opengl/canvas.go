@@ -305,7 +305,11 @@ func (ct *canvasTriangles) draw(tex *glhf.Texture, bounds pixel.Rect) {
 	mat := ct.dst.mat
 	col := ct.dst.col
 
-	mainthread.CallNonBlock(func() {
+	// Use Call (blocking) not CallNonBlock: same race as Canvas.Clear — on
+	// WASM every WebGL call is a goroutine scheduling point, so a non-blocking
+	// draw can be preempted by window.Update (SwapBuffers) before it executes,
+	// producing a black frame.
+	mainthread.Call(func() {
 		ct.dst.setGlhfBounds()
 		setBlendFunc(cmp)
 
