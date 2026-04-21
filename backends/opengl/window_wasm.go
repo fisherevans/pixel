@@ -129,6 +129,12 @@ func NewWindow(cfg WindowConfig) (*Window, error) {
 	win.canvas = NewCanvas(cfg.Bounds)
 	currWin = win
 
+	// Expose GPU renderer string to JS so the page can include it in crash
+	// diagnostics (heartbeat, context-lost overlay, etc.).
+	if win.gpuRenderer != "" {
+		js.Global().Set("_gpuRenderer", win.gpuRenderer)
+	}
+
 	// Ensure the canvas can receive keyboard focus inside iframes.
 	if jsCanvas.Get("tabIndex").Int() < 0 {
 		jsCanvas.Set("tabIndex", 0)
