@@ -4,6 +4,7 @@ package opengl
 
 import (
 	"image/color"
+	"math"
 	"syscall/js"
 
 	"github.com/gopxl/glhf/v2"
@@ -36,12 +37,11 @@ type WindowConfig struct {
 	BoundsLimits           pixel.Rect
 }
 
-// MaxDevicePixelRatio caps the backing-store scale factor used by syncCanvasSize.
-// iOS/WebKit drops the WebGL context when GPU memory is exhausted; DPR=3 on
-// modern iPhones produces a ~12 MB framebuffer for a fullscreen canvas, which
-// combined with game textures easily hits the iOS limit. DPR=2 gives sharp
-// rendering at 2x scale for essentially no visual downgrade in a pixel-art game.
-var MaxDevicePixelRatio = 2.0
+// MaxDevicePixelRatio is the upper bound on the effective DPR chosen by
+// effectiveDPR. The actual value used is always a clean integer divisor of the
+// native DPR (so backing-store pixels map 1:1 to physical screen pixels), but
+// never exceeds this cap. Raise if newer high-memory devices need DPR=3+.
+var MaxDevicePixelRatio = 3.0
 
 // Window wraps an HTML5 canvas plus a WebGL2 rendering context. The internal
 // Canvas handles all drawing; Update blits it to the default framebuffer and
@@ -194,6 +194,26 @@ func (w *Window) Update() {
 	awaitAnimationFrame()
 }
 
+// effectiveDPR returns the largest integer d such that:
+//   - d <= max
+//   - native/d is (approximately) an integer
+//
+// This guarantees that every backing-store pixel maps to a whole number of
+// physical screen pixels. A non-divisor cap (e.g. max=2 on a DPR=3 device)
+// would cause a 1.5x fractional scale from the backing store to the physical
+// display, making pixel-art sprites look uneven (some logical pixels wider than
+// others). Falls back to 1 when no clean divisor exists within the cap.
+func effectiveDPR(native, max float64) float64 {
+	limit := int(math.Min(math.Floor(native), math.Floor(max)))
+	for d := limit; d >= 1; d-- {
+		ratio := native / float64(d)
+		if math.Abs(ratio-math.Round(ratio)) < 0.1 {
+			return float64(d)
+		}
+	}
+	return 1
+}
+
 // syncCanvasSize updates the canvas backing store to match its current CSS size
 // (times devicePixelRatio). Call before each frame so window resizes and
 // fullscreen transitions propagate into window.Bounds() without a JS callback.
@@ -203,12 +223,11 @@ func (w *Window) syncCanvasSize() {
 	if cssW <= 0 || cssH <= 0 {
 		return
 	}
-	dpr := js.Global().Get("devicePixelRatio").Float()
-	if dpr < 1 {
-		dpr = 1
-	} else if MaxDevicePixelRatio > 0 && dpr > MaxDevicePixelRatio {
-		dpr = MaxDevicePixelRatio
+	nativeDPR := js.Global().Get("devicePixelRatio").Float()
+	if nativeDPR < 1 {
+		nativeDPR = 1
 	}
+	dpr := effectiveDPR(nativeDPR, MaxDevicePixelRatio)
 	targetW := int(float64(cssW) * dpr)
 	targetH := int(float64(cssH) * dpr)
 	curW := w.jsCanvas.Get("width").Int()
