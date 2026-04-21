@@ -51,6 +51,9 @@ func (c *Canvas) SetUniform(name string, value interface{}) {
 	c.shader.SetUniform(name, value)
 }
 
+// SetUniformTexture binds tex to the sampler2D uniform named name on this
+// canvas's fragment shader. unit is the texture unit index (0-based) and
+// must not collide with any other sampler bound on the same canvas.
 func (c *Canvas) SetUniformTexture(name string, tex *glhf.Texture, unit int) {
 	c.shader.SetUniformTexture(name, tex, unit)
 }

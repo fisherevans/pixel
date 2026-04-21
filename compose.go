@@ -83,9 +83,6 @@ func (cm ComposeMethod) Compose(a, b RGBA) RGBA {
 		}
 
 		ao := sa + da - sa*da
-		// (optional) clamp to [0,1]
-		// cr = math.Min(1, math.Max(0, cr)) ... same for cg, cb, ao
-
 		return RGBA{R: cr, G: cg, B: cb, A: ao}
 	case ComposeScreen:
 		sa, da := a.A, b.A
