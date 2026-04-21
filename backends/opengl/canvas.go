@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image/color"
 
-	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/gopxl/glhf/v2"
 	"github.com/gopxl/mainthread/v2"
@@ -194,10 +193,10 @@ func setBlendFunc(cmp pixel.ComposeMethod) {
 	case pixel.ComposeCopy:
 		glhf.BlendFunc(glhf.One, glhf.Zero)
 	case pixel.ComposeMultiply:
-		glhf.BlendFunc(glhf.BlendFactor(gl.DST_COLOR), glhf.Zero)
+		glhf.BlendFunc(glhf.DstColor, glhf.Zero)
 	case pixel.ComposeScreen:
-		gl.BlendEquation(gl.FUNC_ADD)
-		gl.BlendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_COLOR, gl.ZERO, gl.ONE)
+		glhf.BlendEquation(glhf.FuncAdd)
+		glhf.BlendFuncSeparate(glhf.One, glhf.OneMinusSrcColor, glhf.Zero, glhf.One)
 	default:
 		panic(errors.New("Canvas: invalid compose method"))
 	}
@@ -217,7 +216,11 @@ func (c *Canvas) Clear(color color.Color) {
 		A: float64(c.col[3]),
 	})
 
-	mainthread.CallNonBlock(func() {
+	// Use Call (blocking) not CallNonBlock: on WASM, CallNonBlock spawns a
+	// goroutine, and every WebGL call is a goroutine scheduling point — the
+	// deferred clear would race with in-flight draw calls and wipe content
+	// mid-render.
+	mainthread.Call(func() {
 		c.setGlhfBounds()
 		c.gf.Frame().Begin()
 		glhf.Clear(
@@ -332,12 +335,12 @@ func (ct *canvasTriangles) draw(tex *glhf.Texture, bounds pixel.Rect) {
 
 		for loc, u := range ct.shader.uniforms {
 			if u.isSampler && u.tex != nil {
-				gl.ActiveTexture(gl.TEXTURE0 + uint32(u.unit))
+				glhf.ActiveTexture(u.unit)
 				u.tex.Begin()
 			}
 			ct.shader.s.SetUniformAttr(loc, u.Value())
 		}
-		gl.ActiveTexture(gl.TEXTURE0)
+		glhf.ActiveTexture(0)
 
 		if tex == nil {
 			ct.vs.Begin()
