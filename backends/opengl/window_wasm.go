@@ -115,15 +115,22 @@ func NewWindow(cfg WindowConfig) (*Window, error) {
 	return win, nil
 }
 
-// installContextLostHandler logs and full-page-reloads on WebGL context loss.
-// True in-place recovery is out of scope; reload is the simplest safe action.
+// installContextLostHandler notifies the page when the WebGL context is lost.
+// True in-place recovery is out of scope. If window.pixelOnContextLost is
+// defined the page handles the response (show UI, prompt reload, etc.);
+// otherwise we fall back to an immediate location.reload().
 func (w *Window) installContextLostHandler() {
 	lost := js.FuncOf(func(this js.Value, args []js.Value) any {
 		if len(args) > 0 {
 			args[0].Call("preventDefault")
 		}
-		js.Global().Get("console").Call("warn", "webglcontextlost — reloading")
-		js.Global().Get("location").Call("reload")
+		js.Global().Get("console").Call("warn", "webglcontextlost")
+		cb := js.Global().Get("pixelOnContextLost")
+		if cb.Truthy() {
+			cb.Invoke()
+		} else {
+			js.Global().Get("location").Call("reload")
+		}
 		return nil
 	})
 	w.jsCanvas.Call("addEventListener", "webglcontextlost", lost)
