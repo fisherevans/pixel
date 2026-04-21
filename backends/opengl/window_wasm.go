@@ -50,7 +50,8 @@ type Window struct {
 	vsync         bool
 	cursorVisible bool
 
-	input internal.InputHandler
+	input                      internal.InputHandler
+	prevJoy, currJoy, tempJoy  internal.JoystickState
 
 	buttonCallback       func(win *Window, button pixel.Button, action pixel.Action)
 	charCallback         func(win *Window, r rune)

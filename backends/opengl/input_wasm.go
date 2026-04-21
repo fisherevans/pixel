@@ -39,10 +39,17 @@ func (w *Window) SetScrollCallback(cb func(win *Window, scroll pixel.Vec)) {
 	w.scrollCallback = cb
 }
 
-// UpdateInput commits the pending input events for the next frame.
-func (w *Window) UpdateInput() { w.input.Update() }
+// UpdateInput commits the pending input events for the next frame and polls
+// the connected gamepads via the HTML5 Gamepad API.
+func (w *Window) UpdateInput() {
+	w.input.Update()
+	w.updateJoystickInput()
+}
 
 // UpdateInputWait commits pending events. The timeout argument is accepted for
 // API parity with the desktop backend but ignored under WASM — the browser
 // event loop delivers events asynchronously.
-func (w *Window) UpdateInputWait(timeout time.Duration) { w.input.Update() }
+func (w *Window) UpdateInputWait(timeout time.Duration) {
+	w.input.Update()
+	w.updateJoystickInput()
+}
