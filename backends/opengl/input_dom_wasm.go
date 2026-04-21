@@ -289,6 +289,63 @@ func (w *Window) initInput() {
 		return nil
 	})
 
+	// Touch events — map single-touch to MouseButton1 so the game receives
+	// touch input on mobile browsers. preventDefault on all touch events stops
+	// the browser's default pan/zoom/callout behaviours; passive:false is
+	// required to allow that call.
+	nonPassive := map[string]any{"passive": false}
+
+	touchStart := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) == 0 {
+			return nil
+		}
+		ev := args[0]
+		ev.Call("preventDefault")
+		touches := ev.Get("changedTouches")
+		if touches.Length() == 0 {
+			return nil
+		}
+		pos := w.touchPosFromTouch(touches.Index(0))
+		w.input.MouseMoveEvent(pos)
+		w.input.ButtonEvent(pixel.MouseButton1, true)
+		w.fireButtonCallback(pixel.MouseButton1, pixel.Press)
+		return nil
+	})
+
+	touchMove := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) == 0 {
+			return nil
+		}
+		ev := args[0]
+		ev.Call("preventDefault")
+		touches := ev.Get("touches")
+		if touches.Length() == 0 {
+			return nil
+		}
+		pos := w.touchPosFromTouch(touches.Index(0))
+		w.input.MouseMoveEvent(pos)
+		if w.mouseMovedCallback != nil {
+			w.mouseMovedCallback(w, pos)
+		}
+		return nil
+	})
+
+	touchEnd := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) == 0 {
+			return nil
+		}
+		ev := args[0]
+		ev.Call("preventDefault")
+		touches := ev.Get("changedTouches")
+		if touches.Length() > 0 {
+			pos := w.touchPosFromTouch(touches.Index(0))
+			w.input.MouseMoveEvent(pos)
+		}
+		w.input.ButtonEvent(pixel.MouseButton1, false)
+		w.fireButtonCallback(pixel.MouseButton1, pixel.Release)
+		return nil
+	})
+
 	w.jsCanvas.Call("addEventListener", "keydown", keyDown)
 	w.jsCanvas.Call("addEventListener", "keyup", keyUp)
 	w.jsCanvas.Call("addEventListener", "blur", blur)
@@ -299,6 +356,10 @@ func (w *Window) initInput() {
 	w.jsCanvas.Call("addEventListener", "mouseleave", mouseLeave)
 	w.jsCanvas.Call("addEventListener", "wheel", wheel, map[string]any{"passive": false})
 	w.jsCanvas.Call("addEventListener", "contextmenu", contextMenu)
+	w.jsCanvas.Call("addEventListener", "touchstart", touchStart, nonPassive)
+	w.jsCanvas.Call("addEventListener", "touchmove", touchMove, nonPassive)
+	w.jsCanvas.Call("addEventListener", "touchend", touchEnd, nonPassive)
+	w.jsCanvas.Call("addEventListener", "touchcancel", touchEnd, nonPassive)
 }
 
 // mousePosFromEvent converts a MouseEvent's clientX/Y (in CSS pixels,
@@ -309,6 +370,23 @@ func (w *Window) mousePosFromEvent(ev js.Value) pixel.Vec {
 	rect := w.jsCanvas.Call("getBoundingClientRect")
 	cssX := ev.Get("clientX").Float() - rect.Get("left").Float()
 	cssY := ev.Get("clientY").Float() - rect.Get("top").Float()
+	cssW := rect.Get("width").Float()
+	cssH := rect.Get("height").Float()
+	if cssW <= 0 || cssH <= 0 {
+		return pixel.ZV
+	}
+	bounds := w.bounds
+	x := bounds.Min.X + (cssX/cssW)*bounds.W()
+	y := bounds.Min.Y + (1-cssY/cssH)*bounds.H()
+	return pixel.V(x, y)
+}
+
+// touchPosFromTouch converts a single Touch object's clientX/Y into
+// window-local pixel coordinates, using the same mapping as mousePosFromEvent.
+func (w *Window) touchPosFromTouch(touch js.Value) pixel.Vec {
+	rect := w.jsCanvas.Call("getBoundingClientRect")
+	cssX := touch.Get("clientX").Float() - rect.Get("left").Float()
+	cssY := touch.Get("clientY").Float() - rect.Get("top").Float()
 	cssW := rect.Get("width").Float()
 	cssH := rect.Get("height").Float()
 	if cssW <= 0 || cssH <= 0 {
