@@ -137,6 +137,10 @@ func (gs *GLShader) SetUniform(name string, value interface{}) {
 	})
 }
 
+// SetUniformTexture binds a sampler2D uniform so that tex is available in the
+// fragment shader as the sampler named name. unit is the texture unit index
+// (0-based); it must be distinct from any other sampler bound on the same
+// shader. The texture is activated and bound each frame before drawing.
 func (gs *GLShader) SetUniformTexture(name string, tex *glhf.Texture, unit int) {
 	unit32 := int32(unit)
 	t, p := getAttrType(unit32)
@@ -148,17 +152,16 @@ func (gs *GLShader) SetUniformTexture(name string, tex *glhf.Texture, unit int) 
 		gs.uniforms[idx].tex = tex
 		gs.uniforms[idx].unit = unit
 		return
-	} else {
-		gs.uniforms = append(gs.uniforms, gsUniformAttr{
-			Name:      name,
-			Type:      t,
-			value:     unit32,
-			ispointer: p,
-			isSampler: true,
-			tex:       tex,
-			unit:      unit,
-		})
 	}
+	gs.uniforms = append(gs.uniforms, gsUniformAttr{
+		Name:      name,
+		Type:      t,
+		value:     unit32,
+		ispointer: p,
+		isSampler: true,
+		tex:       tex,
+		unit:      unit,
+	})
 }
 
 // Value returns the attribute's concrete value. If the stored value
