@@ -36,6 +36,13 @@ type WindowConfig struct {
 	BoundsLimits           pixel.Rect
 }
 
+// MaxDevicePixelRatio caps the backing-store scale factor used by syncCanvasSize.
+// iOS/WebKit drops the WebGL context when GPU memory is exhausted; DPR=3 on
+// modern iPhones produces a ~12 MB framebuffer for a fullscreen canvas, which
+// combined with game textures easily hits the iOS limit. DPR=2 gives sharp
+// rendering at 2x scale for essentially no visual downgrade in a pixel-art game.
+var MaxDevicePixelRatio = 2.0
+
 // Window wraps an HTML5 canvas plus a WebGL2 rendering context. The internal
 // Canvas handles all drawing; Update blits it to the default framebuffer and
 // yields to requestAnimationFrame.
@@ -49,6 +56,9 @@ type Window struct {
 	closed        bool
 	vsync         bool
 	cursorVisible bool
+
+	gpuRenderer string // captured at init for diagnostics
+	ctxLostCount int
 
 	input                      internal.InputHandler
 	prevJoy, currJoy, tempJoy  internal.JoystickState
@@ -100,6 +110,18 @@ func NewWindow(cfg WindowConfig) (*Window, error) {
 		cursorVisible: true,
 	}
 
+	// Capture GPU renderer string for diagnostics. WEBGL_debug_renderer_info
+	// may be blocked by the browser (privacy), so fall back gracefully.
+	if ext := gl.Call("getExtension", "WEBGL_debug_renderer_info"); ext.Truthy() {
+		unmaskedRenderer := ext.Get("UNMASKED_RENDERER_WEBGL")
+		if unmaskedRenderer.Truthy() {
+			win.gpuRenderer = gl.Call("getParameter", unmaskedRenderer).String()
+		}
+	}
+	if win.gpuRenderer == "" {
+		win.gpuRenderer = gl.Call("getParameter", js.Global().Get("WebGL2RenderingContext").Get("RENDERER")).String()
+	}
+
 	win.canvas = NewCanvas(cfg.Bounds)
 	currWin = win
 
@@ -124,10 +146,22 @@ func (w *Window) installContextLostHandler() {
 		if len(args) > 0 {
 			args[0].Call("preventDefault")
 		}
-		js.Global().Get("console").Call("warn", "webglcontextlost")
+		w.ctxLostCount++
+		dpr := js.Global().Get("devicePixelRatio").Float()
+		fbW := w.jsCanvas.Get("width").Int()
+		fbH := w.jsCanvas.Get("height").Int()
+		elapsed := js.Global().Get("performance").Call("now").Float()
+		diag := js.Global().Get("Object").New()
+		diag.Set("renderer", w.gpuRenderer)
+		diag.Set("dpr", dpr)
+		diag.Set("backingW", fbW)
+		diag.Set("backingH", fbH)
+		diag.Set("elapsedMs", elapsed)
+		diag.Set("count", w.ctxLostCount)
+		js.Global().Get("console").Call("warn", "webglcontextlost", diag)
 		cb := js.Global().Get("pixelOnContextLost")
 		if cb.Truthy() {
-			cb.Invoke()
+			cb.Invoke(diag)
 		} else {
 			js.Global().Get("location").Call("reload")
 		}
@@ -162,6 +196,8 @@ func (w *Window) syncCanvasSize() {
 	dpr := js.Global().Get("devicePixelRatio").Float()
 	if dpr < 1 {
 		dpr = 1
+	} else if MaxDevicePixelRatio > 0 && dpr > MaxDevicePixelRatio {
+		dpr = MaxDevicePixelRatio
 	}
 	targetW := int(float64(cssW) * dpr)
 	targetH := int(float64(cssH) * dpr)
