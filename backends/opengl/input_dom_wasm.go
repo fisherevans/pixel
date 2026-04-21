@@ -307,7 +307,7 @@ func (w *Window) initInput() {
 		}
 		pos := w.touchPosFromTouch(touches.Index(0))
 		w.input.MouseMoveEvent(pos)
-		w.input.ButtonEvent(pixel.MouseButton1, true)
+		w.input.ButtonEvent(pixel.MouseButton1, pixel.Press)
 		w.fireButtonCallback(pixel.MouseButton1, pixel.Press)
 		return nil
 	})
@@ -341,7 +341,7 @@ func (w *Window) initInput() {
 			pos := w.touchPosFromTouch(touches.Index(0))
 			w.input.MouseMoveEvent(pos)
 		}
-		w.input.ButtonEvent(pixel.MouseButton1, false)
+		w.input.ButtonEvent(pixel.MouseButton1, pixel.Release)
 		w.fireButtonCallback(pixel.MouseButton1, pixel.Release)
 		return nil
 	})
