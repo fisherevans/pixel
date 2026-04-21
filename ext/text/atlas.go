@@ -105,7 +105,8 @@ func (a *Atlas) Picture() pixel.Picture {
 	return a.pic
 }
 
-// PictureDataCopy returns a full copy of the underlying picture data of the Atlas.
+// PictureDataCopy returns a deep copy of the atlas's underlying pixel data. The caller
+// owns the returned PictureData and may modify it without affecting the Atlas.
 func (a *Atlas) PictureDataCopy() *pixel.PictureData {
 	newPic := &pixel.PictureData{
 		Stride: a.pic.Stride,
@@ -116,10 +117,16 @@ func (a *Atlas) PictureDataCopy() *pixel.PictureData {
 	return newPic
 }
 
-// CloneWithPictureData returns a new Atlas with the same glyphs but utilizing the supplied PictureData
+// CloneWithPictureData returns a new Atlas that uses pic as its backing image.
+// frame is the sub-rectangle of pic where the atlas glyphs live; it must have
+// the same width and height as the original atlas picture. All glyph coordinates
+// are translated so they remain correct relative to the new location in pic.
+//
+// The intended use is to blit PictureDataCopy into a larger shared atlas image and
+// then call CloneWithPictureData so text can share a pixel.Batch with other sprites.
 func (a *Atlas) CloneWithPictureData(pic *pixel.PictureData, frame pixel.Rect) *Atlas {
 	if a.pic.Bounds().W() != frame.W() || a.pic.Bounds().H() != frame.H() {
-		panic("atlas: new frame dimensions do no match prior picture")
+		panic("atlas: new frame dimensions do not match prior picture")
 	}
 	if !pic.Bounds().Contains(frame.Min) || !pic.Bounds().Contains(frame.Max) {
 		panic("atlas: new frame is out of bounds of supplied pic")
