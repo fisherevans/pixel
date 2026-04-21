@@ -199,6 +199,14 @@ func (w *Window) initInput() {
 		for _, btn := range domMouseButton {
 			w.input.ButtonEvent(btn, pixel.Release)
 		}
+		// Clear touch state so no touches appear stuck after losing focus.
+		for id := range w.activeTouches {
+			delete(w.activeTouches, id)
+		}
+		if w.touchCount > 0 {
+			w.touchCount = 0
+			w.input.ButtonEvent(pixel.MouseButton1, pixel.Release)
+		}
 		return nil
 	})
 
@@ -301,14 +309,21 @@ func (w *Window) initInput() {
 		}
 		ev := args[0]
 		ev.Call("preventDefault")
-		touches := ev.Get("changedTouches")
-		if touches.Length() == 0 {
-			return nil
+		changed := ev.Get("changedTouches")
+		for i := 0; i < changed.Length(); i++ {
+			t := changed.Index(i)
+			id := t.Get("identifier").Int()
+			pos := w.touchPosFromTouch(t)
+			w.activeTouches[id] = pos
+			w.input.MouseMoveEvent(pos)
 		}
-		pos := w.touchPosFromTouch(touches.Index(0))
-		w.input.MouseMoveEvent(pos)
-		w.input.ButtonEvent(pixel.MouseButton1, pixel.Press)
-		w.fireButtonCallback(pixel.MouseButton1, pixel.Press)
+		// Fire Press only on the first finger down so MouseButton1 behaves as
+		// a simple "any touch active" signal rather than toggling on each finger.
+		if w.touchCount == 0 {
+			w.input.ButtonEvent(pixel.MouseButton1, pixel.Press)
+			w.fireButtonCallback(pixel.MouseButton1, pixel.Press)
+		}
+		w.touchCount += changed.Length()
 		return nil
 	})
 
@@ -318,14 +333,25 @@ func (w *Window) initInput() {
 		}
 		ev := args[0]
 		ev.Call("preventDefault")
-		touches := ev.Get("touches")
-		if touches.Length() == 0 {
-			return nil
+		// Update all moved touches in the active map.
+		changed := ev.Get("changedTouches")
+		for i := 0; i < changed.Length(); i++ {
+			t := changed.Index(i)
+			id := t.Get("identifier").Int()
+			pos := w.touchPosFromTouch(t)
+			if _, active := w.activeTouches[id]; active {
+				w.activeTouches[id] = pos
+			}
 		}
-		pos := w.touchPosFromTouch(touches.Index(0))
-		w.input.MouseMoveEvent(pos)
-		if w.mouseMovedCallback != nil {
-			w.mouseMovedCallback(w, pos)
+		// Forward the first currently-active touch as the mouse position so
+		// single-touch code (settings panel, etc.) continues to work.
+		all := ev.Get("touches")
+		if all.Length() > 0 {
+			pos := w.touchPosFromTouch(all.Index(0))
+			w.input.MouseMoveEvent(pos)
+			if w.mouseMovedCallback != nil {
+				w.mouseMovedCallback(w, pos)
+			}
 		}
 		return nil
 	})
@@ -336,13 +362,21 @@ func (w *Window) initInput() {
 		}
 		ev := args[0]
 		ev.Call("preventDefault")
-		touches := ev.Get("changedTouches")
-		if touches.Length() > 0 {
-			pos := w.touchPosFromTouch(touches.Index(0))
-			w.input.MouseMoveEvent(pos)
+		changed := ev.Get("changedTouches")
+		for i := 0; i < changed.Length(); i++ {
+			t := changed.Index(i)
+			id := t.Get("identifier").Int()
+			if pos, ok := w.activeTouches[id]; ok {
+				w.input.MouseMoveEvent(pos)
+				delete(w.activeTouches, id)
+			}
 		}
-		w.input.ButtonEvent(pixel.MouseButton1, pixel.Release)
-		w.fireButtonCallback(pixel.MouseButton1, pixel.Release)
+		w.touchCount -= changed.Length()
+		if w.touchCount <= 0 {
+			w.touchCount = 0
+			w.input.ButtonEvent(pixel.MouseButton1, pixel.Release)
+			w.fireButtonCallback(pixel.MouseButton1, pixel.Release)
+		}
 		return nil
 	})
 

@@ -57,8 +57,11 @@ type Window struct {
 	vsync         bool
 	cursorVisible bool
 
-	gpuRenderer string // captured at init for diagnostics
+	gpuRenderer  string // captured at init for diagnostics
 	ctxLostCount int
+
+	activeTouches map[int]pixel.Vec // keyed by Touch.identifier; updated by touch event handlers
+	touchCount    int               // number of currently-held touches; guards MouseButton1 edge detection
 
 	input                      internal.InputHandler
 	prevJoy, currJoy, tempJoy  internal.JoystickState
@@ -108,6 +111,7 @@ func NewWindow(cfg WindowConfig) (*Window, error) {
 		gl:            gl,
 		vsync:         cfg.VSync,
 		cursorVisible: true,
+		activeTouches: make(map[int]pixel.Vec),
 	}
 
 	// Capture GPU renderer string for diagnostics. WEBGL_debug_renderer_info
@@ -269,6 +273,18 @@ func (w *Window) SetTitle(title string) {
 
 func (w *Window) Focused() bool {
 	return js.Global().Get("document").Call("hasFocus").Bool()
+}
+
+// ActiveTouches returns a snapshot of all currently-held touch positions in
+// window-local pixel coordinates, one entry per active Touch.identifier.
+// Use this instead of MousePosition for multi-touch hit-testing (e.g. virtual
+// gamepads) because MousePosition only reflects the most-recent touch move.
+func (w *Window) ActiveTouches() []pixel.Vec {
+	out := make([]pixel.Vec, 0, len(w.activeTouches))
+	for _, v := range w.activeTouches {
+		out = append(out, v)
+	}
+	return out
 }
 
 func (w *Window) SetVSync(vsync bool) { w.vsync = vsync }
