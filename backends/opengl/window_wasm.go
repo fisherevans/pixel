@@ -219,7 +219,12 @@ func (w *Window) Update() {
 // physical screen pixels. A non-divisor cap (e.g. max=2 on a DPR=3 device)
 // would cause a 1.5x fractional scale from the backing store to the physical
 // display, making pixel-art sprites look uneven (some logical pixels wider than
-// others). Falls back to 1 when no clean divisor exists within the cap.
+// others).
+//
+// When no exact divisor exists (e.g. Pixel 7a's DPR=2.625 has no integer d
+// where 2.625/d is near-integer), falls back to floor(min(native, max)) rather
+// than 1. That gives the best available integer scale rather than surrendering
+// to 1x, which would leave a high-DPI screen rendering at desktop-pixel size.
 func effectiveDPR(native, max float64) float64 {
 	limit := int(math.Min(math.Floor(native), math.Floor(max)))
 	for d := limit; d >= 1; d-- {
@@ -228,7 +233,7 @@ func effectiveDPR(native, max float64) float64 {
 			return float64(d)
 		}
 	}
-	return 1
+	return math.Max(1, float64(limit))
 }
 
 // syncCanvasSize updates the canvas backing store to match its current CSS size
