@@ -15,6 +15,23 @@ import (
 
 // CanvasElementID names the HTML canvas the WASM backend will attach to.
 // Override before calling NewWindow to target a different element.
+//
+// Recommended minimal HTML for the canvas element:
+//
+//	<style>
+//	  html, body { margin:0; width:100%; height:100%; overflow:hidden; touch-action:none; }
+//	  #game       { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
+//	</style>
+//	<canvas id="game" tabindex="0"></canvas>
+//
+// Key points:
+//   - position:absolute (not fixed) — on iOS Safari, position:fixed inside an
+//     iframe anchors to the top-level viewport instead of the iframe, so the
+//     canvas ends up off-screen and getBoundingClientRect returns wrong
+//     dimensions, breaking both rendering and touch coordinate mapping.
+//   - touch-action:none on html, body, and the canvas — prevents the browser
+//     (and any parent iframe) from intercepting touch gestures for scrolling
+//     before they reach the canvas event handlers.
 var CanvasElementID = "game"
 
 // WindowConfig mirrors the desktop struct so call-sites compile unchanged.
