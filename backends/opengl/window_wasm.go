@@ -54,10 +54,10 @@ type WindowConfig struct {
 	BoundsLimits           pixel.Rect
 }
 
-// MaxDevicePixelRatio is the upper bound on the effective DPR chosen by
-// effectiveDPR. The actual value used is always a clean integer divisor of the
-// native DPR (so backing-store pixels map 1:1 to physical screen pixels), but
-// never exceeds this cap. Raise if newer high-memory devices need DPR=3+.
+// MaxDevicePixelRatio caps the DPR applied when sizing the backing store.
+// The canvas backing store is set to round(cssW * min(nativeDPR, cap)), giving
+// as close to 1:1 physical pixel coverage as the cap allows. Raise if
+// high-memory devices need DPR > 3.
 var MaxDevicePixelRatio = 3.0
 
 // Window wraps an HTML5 canvas plus a WebGL2 rendering context. The internal
@@ -211,34 +211,15 @@ func (w *Window) Update() {
 	awaitAnimationFrame()
 }
 
-// effectiveDPR returns the largest integer d such that:
-//   - d <= max
-//   - native/d is (approximately) an integer
-//
-// This guarantees that every backing-store pixel maps to a whole number of
-// physical screen pixels. A non-divisor cap (e.g. max=2 on a DPR=3 device)
-// would cause a 1.5x fractional scale from the backing store to the physical
-// display, making pixel-art sprites look uneven (some logical pixels wider than
-// others).
-//
-// When no exact divisor exists (e.g. Pixel 7a's DPR=2.625 has no integer d
-// where 2.625/d is near-integer), falls back to floor(min(native, max)) rather
-// than 1. That gives the best available integer scale rather than surrendering
-// to 1x, which would leave a high-DPI screen rendering at desktop-pixel size.
-func effectiveDPR(native, max float64) float64 {
-	limit := int(math.Min(math.Floor(native), math.Floor(max)))
-	for d := limit; d >= 1; d-- {
-		ratio := native / float64(d)
-		if math.Abs(ratio-math.Round(ratio)) < 0.1 {
-			return float64(d)
-		}
-	}
-	return math.Max(1, float64(limit))
-}
-
 // syncCanvasSize updates the canvas backing store to match its current CSS size
-// (times devicePixelRatio). Call before each frame so window resizes and
-// fullscreen transitions propagate into window.Bounds() without a JS callback.
+// times devicePixelRatio (capped at MaxDevicePixelRatio). Call before each
+// frame so window resizes and fullscreen transitions propagate into
+// window.Bounds() without a JS callback.
+//
+// The backing store is sized to round(cssW * dpr), giving a 1:1 physical-pixel
+// canvas. Coordinate conversion in mousePosFromEvent and touchPosFromTouch is
+// ratio-based, so it handles fractional DPRs (e.g. Pixel 7a's 2.625) correctly
+// without any integer-rounding of the DPR itself.
 func (w *Window) syncCanvasSize() {
 	cssW := w.jsCanvas.Get("clientWidth").Int()
 	cssH := w.jsCanvas.Get("clientHeight").Int()
@@ -249,9 +230,9 @@ func (w *Window) syncCanvasSize() {
 	if nativeDPR < 1 {
 		nativeDPR = 1
 	}
-	dpr := effectiveDPR(nativeDPR, MaxDevicePixelRatio)
-	targetW := int(float64(cssW) * dpr)
-	targetH := int(float64(cssH) * dpr)
+	dpr := math.Min(nativeDPR, MaxDevicePixelRatio)
+	targetW := int(math.Round(float64(cssW) * dpr))
+	targetH := int(math.Round(float64(cssH) * dpr))
 	curW := w.jsCanvas.Get("width").Int()
 	curH := w.jsCanvas.Get("height").Int()
 	if curW == targetW && curH == targetH {
