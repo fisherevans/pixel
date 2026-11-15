@@ -198,10 +198,18 @@ func setBlendFunc(cmp pixel.ComposeMethod) {
 	case pixel.ComposeCopy:
 		glhf.BlendFunc(glhf.One, glhf.Zero)
 	case pixel.ComposeMultiply:
-		glhf.BlendFunc(glhf.DstColor, glhf.Zero)
+		// rgb = src*dst + dst*(1-srcA), alpha = dstA: the source darkens what
+		// is there, in proportion to its coverage; a transparent source texel
+		// leaves the destination alone (with Zero for dst it erased it).
+		// Matches ComposeMethod.Compose wherever the destination is opaque;
+		// over a transparent destination the source adds nothing, where
+		// Compose would show it (no blend factor expresses that term).
+		glhf.BlendFuncSeparate(glhf.DstColor, glhf.OneMinusSrcAlpha, glhf.Zero, glhf.One)
 	case pixel.ComposeScreen:
-		glhf.BlendEquation(glhf.FuncAdd)
-		glhf.BlendFuncSeparate(glhf.One, glhf.OneMinusSrcColor, glhf.Zero, glhf.One)
+		// rgb = src + dst*(1-src), alpha = srcA + dstA*(1-srcA): the
+		// premultiplied screen formula, as ComposeMethod.Compose. Alpha used
+		// to stay dstA, which left rgb > alpha over a transparent destination.
+		glhf.BlendFuncSeparate(glhf.One, glhf.OneMinusSrcColor, glhf.One, glhf.OneMinusSrcAlpha)
 	default:
 		panic(errors.New("Canvas: invalid compose method"))
 	}
