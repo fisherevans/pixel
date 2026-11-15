@@ -49,6 +49,10 @@ type gsUniformAttr struct {
 	isSampler bool
 	tex       *glhf.Texture
 	unit      int
+	// used is whether the current fragment shader names the sampler. A
+	// sampler left over from an earlier shader on the same canvas is not
+	// bound.
+	used bool
 
 	// constant uniforms are set once when the shader is built, not before
 	// every draw.
@@ -108,6 +112,11 @@ func NewGLShader(fragmentShader string) *GLShader {
 // Update reinitialize GLShader data and recompile the underlying gl shader object
 func (gs *GLShader) Update() {
 	gs.pages = strings.Contains(gs.fs, "pixelTexture(")
+	for i := range gs.uniforms {
+		if gs.uniforms[i].isSampler {
+			gs.uniforms[i].used = strings.Contains(gs.fs, gs.uniforms[i].Name)
+		}
+	}
 	gs.uf = make([]glhf.Attr, len(gs.uniforms))
 	for idx := range gs.uniforms {
 		gs.uf[idx] = glhf.Attr{
@@ -176,23 +185,33 @@ func (gs *GLShader) SetUniform(name string, value interface{}) {
 	})
 }
 
-// SetUniformTexture binds a sampler2D uniform so that tex is available in the
-// fragment shader as the sampler named name. unit is the texture unit index
-// (0-based); it must be distinct from any other sampler bound on the same
-// shader. The texture is activated and bound each frame before drawing.
+// Texture units SetUniformTexture may use. Unit 0 holds the picture being
+// drawn (uTexture) and units from atlasPageUnitBase hold the pages of a paged
+// picture, so a sampler on either would be overwritten before the draw.
+const (
+	MinUniformTextureUnit = 1
+	MaxUniformTextureUnit = atlasPageUnitBase - 1
+)
+
+// SetUniformTexture makes tex available to the fragment shader as the
+// sampler2D named name, on texture unit unit. unit must be between
+// MinUniformTextureUnit and MaxUniformTextureUnit and distinct from any other
+// sampler on the same shader; SetUniformTexture panics otherwise. tex is bound
+// for each draw and unbound after it, with its own filtering and wrapping.
+// Passing a nil tex leaves the sampler unbound.
 func (gs *GLShader) SetUniformTexture(name string, tex *glhf.Texture, unit int) {
+	if unit < MinUniformTextureUnit || unit > MaxUniformTextureUnit {
+		panic(fmt.Sprintf("SetUniformTexture(%q): texture unit %d is reserved; use %d to %d (0 is the drawn picture, %d and up are atlas pages)",
+			name, unit, MinUniformTextureUnit, MaxUniformTextureUnit, atlasPageUnitBase))
+	}
+	for _, u := range gs.uniforms {
+		if u.isSampler && u.Name != name && u.unit == unit {
+			panic(fmt.Sprintf("SetUniformTexture(%q): texture unit %d is already used by %q", name, unit, u.Name))
+		}
+	}
 	unit32 := int32(unit)
 	t, p := getAttrType(unit32)
-	if idx := gs.getUniform(name); idx > -1 {
-		gs.uniforms[idx].Type = t
-		gs.uniforms[idx].value = unit32
-		gs.uniforms[idx].ispointer = p
-		gs.uniforms[idx].isSampler = true
-		gs.uniforms[idx].tex = tex
-		gs.uniforms[idx].unit = unit
-		return
-	}
-	gs.uniforms = append(gs.uniforms, gsUniformAttr{
+	u := gsUniformAttr{
 		Name:      name,
 		Type:      t,
 		value:     unit32,
@@ -200,7 +219,41 @@ func (gs *GLShader) SetUniformTexture(name string, tex *glhf.Texture, unit int) 
 		isSampler: true,
 		tex:       tex,
 		unit:      unit,
-	})
+		used:      strings.Contains(gs.fs, name),
+	}
+	if idx := gs.getUniform(name); idx > -1 {
+		gs.uniforms[idx] = u
+		return
+	}
+	gs.uniforms = append(gs.uniforms, u)
+}
+
+// bindSamplers binds every used sampler's texture to its unit and returns
+// the function that unbinds them again. The shader must be bound; the active
+// unit is 0 afterwards.
+func (gs *GLShader) bindSamplers() func() {
+	n := 0
+	for _, u := range gs.uniforms {
+		if u.isSampler && u.used && u.tex != nil {
+			glhf.ActiveTexture(u.unit)
+			u.tex.Begin()
+			n++
+		}
+	}
+	glhf.ActiveTexture(0)
+	if n == 0 {
+		return func() {}
+	}
+	return func() {
+		for i := len(gs.uniforms) - 1; i >= 0; i-- {
+			u := gs.uniforms[i]
+			if u.isSampler && u.used && u.tex != nil {
+				glhf.ActiveTexture(u.unit)
+				u.tex.End()
+			}
+		}
+		glhf.ActiveTexture(0)
+	}
 }
 
 // Value returns the attribute's concrete value. If the stored value
