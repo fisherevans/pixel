@@ -2,11 +2,14 @@ package opengl
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/gopxl/glhf/v2"
 	"github.com/gopxl/mainthread/v2"
 	"github.com/pkg/errors"
+
+	"github.com/gopxl/pixel/v2"
 )
 
 // GLShader is a type to assist with managing a canvas's underlying
@@ -19,6 +22,10 @@ type GLShader struct {
 
 	uniforms []gsUniformAttr
 
+	// pages is whether the fragment shader samples through pixelTexture,
+	// so it can draw a multi-page picture.
+	pages bool
+
 	uniformDefaults struct {
 		transform mgl32.Mat3
 		colormask mgl32.Vec4
@@ -26,6 +33,11 @@ type GLShader struct {
 		texbounds mgl32.Vec4
 		cliprect  mgl32.Vec4
 	}
+
+	// atlasPages is the value uAtlasPages holds in the compiled program.
+	// It changes only when a paged picture is drawn, so it is set then and
+	// not before every draw: on the web each uniform is a JS call.
+	atlasPages float32
 }
 
 type gsUniformAttr struct {
@@ -37,6 +49,10 @@ type gsUniformAttr struct {
 	isSampler bool
 	tex       *glhf.Texture
 	unit      int
+
+	// constant uniforms are set once when the shader is built, not before
+	// every draw.
+	constant bool
 }
 
 const (
@@ -69,6 +85,20 @@ func NewGLShader(fragmentShader string) *GLShader {
 	gs.SetUniform("uColorMask", &gs.uniformDefaults.colormask)
 	gs.SetUniform("uBounds", &gs.uniformDefaults.bounds)
 	gs.SetUniform("uTexBounds", &gs.uniformDefaults.texbounds)
+	gs.uniforms = append(gs.uniforms, gsUniformAttr{
+		Name:     "uAtlasPages",
+		Type:     glhf.Float,
+		value:    float32(0),
+		constant: true,
+	})
+	for i := 1; i < pixel.PagedPictureMaxPages; i++ {
+		gs.uniforms = append(gs.uniforms, gsUniformAttr{
+			Name:     fmt.Sprintf("uAtlasPage%d", i),
+			Type:     glhf.Int,
+			value:    int32(atlasPageUnitBase + i - 1),
+			constant: true,
+		})
+	}
 
 	gs.Update()
 
@@ -77,6 +107,7 @@ func NewGLShader(fragmentShader string) *GLShader {
 
 // Update reinitialize GLShader data and recompile the underlying gl shader object
 func (gs *GLShader) Update() {
+	gs.pages = strings.Contains(gs.fs, "pixelTexture(")
 	gs.uf = make([]glhf.Attr, len(gs.uniforms))
 	for idx := range gs.uniforms {
 		gs.uf[idx] = glhf.Attr{
@@ -97,6 +128,14 @@ func (gs *GLShader) Update() {
 		if err != nil {
 			panic(errors.Wrap(err, "failed to create Canvas, there's a bug in the shader"))
 		}
+		shader.Begin()
+		for loc, u := range gs.uniforms {
+			if u.constant {
+				shader.SetUniformAttr(loc, u.Value())
+			}
+		}
+		shader.End()
+		gs.atlasPages = 0
 	})
 
 	gs.s = shader
@@ -317,7 +356,7 @@ out vec4 fragColor;
 uniform vec4 uColorMask;
 uniform vec4 uTexBounds;
 uniform sampler2D uTexture;
-
+` + AtlasPagesGLSL + `
 void main() {
 	if ((vClipRect != vec4(0.0, 0.0, 0.0, 0.0)) && (gl_FragCoord.x < vClipRect.x || gl_FragCoord.y < vClipRect.y || gl_FragCoord.x > vClipRect.z || gl_FragCoord.y > vClipRect.w))
 		discard;
@@ -328,8 +367,20 @@ void main() {
 		fragColor = vec4(0.0, 0.0, 0.0, 0.0);
 		fragColor += (1.0 - vIntensity) * vColor;
 		vec2 t = (vTexCoords - uTexBounds.xy) / uTexBounds.zw;
-		fragColor += vIntensity * vColor * texture(uTexture, t);
+		fragColor += vIntensity * vColor * pixelTexture(t);
 		fragColor *= uColorMask;
 	}
 }
 `
+
+// setAtlasPages sets uAtlasPages if it differs from what the program holds.
+// The shader must be bound.
+func (gs *GLShader) setAtlasPages(n float32) {
+	if gs.atlasPages == n {
+		return
+	}
+	if loc := gs.getUniform("uAtlasPages"); loc > -1 {
+		gs.s.SetUniformAttr(loc, n)
+	}
+	gs.atlasPages = n
+}

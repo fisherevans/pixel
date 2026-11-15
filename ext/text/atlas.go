@@ -25,7 +25,7 @@ type Glyph struct {
 // Atlas is a set of pre-drawn glyphs of a fixed set of runes. This allows for efficient text drawing.
 type Atlas struct {
 	face       font.Face
-	pic        *pixel.PictureData
+	pic        pixel.Picture
 	mapping    map[rune]Glyph
 	ascent     float64
 	descent    float64
@@ -107,13 +107,17 @@ func (a *Atlas) Picture() pixel.Picture {
 
 // PictureDataCopy returns a deep copy of the atlas's underlying pixel data. The caller
 // owns the returned PictureData and may modify it without affecting the Atlas.
+//
+// It panics if the atlas has been cloned onto a Picture that is not a
+// *pixel.PictureData.
 func (a *Atlas) PictureDataCopy() *pixel.PictureData {
+	pd := a.pic.(*pixel.PictureData)
 	newPic := &pixel.PictureData{
-		Stride: a.pic.Stride,
-		Rect:   a.pic.Rect,
-		Pix:    make([]color.RGBA, len(a.pic.Pix)),
+		Stride: pd.Stride,
+		Rect:   pd.Rect,
+		Pix:    make([]color.RGBA, len(pd.Pix)),
 	}
-	copy(newPic.Pix, a.pic.Pix)
+	copy(newPic.Pix, pd.Pix)
 	return newPic
 }
 
@@ -124,7 +128,8 @@ func (a *Atlas) PictureDataCopy() *pixel.PictureData {
 //
 // The intended use is to blit PictureDataCopy into a larger shared atlas image and
 // then call CloneWithPictureData so text can share a pixel.Batch with other sprites.
-func (a *Atlas) CloneWithPictureData(pic *pixel.PictureData, frame pixel.Rect) *Atlas {
+// pic may be any Picture, such as a pixel.PagedPictureData.
+func (a *Atlas) CloneWithPictureData(pic pixel.Picture, frame pixel.Rect) *Atlas {
 	if a.pic.Bounds().W() != frame.W() || a.pic.Bounds().H() != frame.H() {
 		panic("atlas: new frame dimensions do not match prior picture")
 	}
@@ -140,7 +145,7 @@ func (a *Atlas) CloneWithPictureData(pic *pixel.PictureData, frame pixel.Rect) *
 		lineHeight: a.lineHeight,
 	}
 	// account for non (0,0) origin images
-	picFrameDelta := frame.Min.Sub(a.pic.Rect.Min)
+	picFrameDelta := frame.Min.Sub(a.pic.Bounds().Min)
 	// for each glyph, translate the dot and frame to account for the new frame location within the supplied pic
 	for r, glyph := range a.mapping {
 		rMin := glyph.Frame.Min.Add(picFrameDelta)

@@ -27,7 +27,12 @@ var pictureDataGLCache sync.Map // *pixel.PictureData -> GLPicture
 
 // NewGLPicture creates a new GLPicture with it's own static OpenGL texture. This function always
 // allocates a new texture that cannot (shouldn't) be further modified.
+//
+// A *pixel.PagedPictureData gets one texture per page; see AtlasPagesGLSL.
 func NewGLPicture(p pixel.Picture) GLPicture {
+	if pp, ok := p.(*pixel.PagedPictureData); ok {
+		return newGLPagedPicture(pp)
+	}
 	if pd, ok := p.(*pixel.PictureData); ok {
 		if cached, found := pictureDataGLCache.Load(pd); found {
 			return cached.(GLPicture)
