@@ -17,15 +17,24 @@ import (
 // texture units, so this fits every target.
 const atlasPageUnitBase = 9
 
-// AtlasPagesGLSL declares the page samplers and pixelTexture(t), which
-// samples the drawn picture at t = (vTexCoords - uTexBounds.xy) /
-// uTexBounds.zw. For an ordinary picture that is texture(uTexture, t). For a
-// paged picture uTexBounds.zw is one page, so the whole part of t names the
-// page and the fraction is the position in it. A fragment shader that may
-// draw a paged picture calls pixelTexture instead of texture(uTexture, ...);
-// WithAtlasPages adds this source to one.
+// AtlasPagesGLSL declares the page samplers, pixelTexel(c) and
+// pixelTexture(t). A fragment shader that may draw a paged picture samples
+// with one of them instead of texture(uTexture, ...); WithAtlasPages adds this
+// source to one.
+//
+// pixelTexel(c) takes vTexCoords, in texels. For an ordinary picture it is
+// texture(uTexture, (c - uTexBounds.xy) / uTexBounds.zw). For a paged picture
+// uTexBounds.zw is one page: the page and the texel in it are found in texel
+// space, and an unsmoothed draw samples that texel's centre, so the result is
+// exactly the texel a single texture would give. Prefer it.
+//
+// pixelTexture(t) takes t = (vTexCoords - uTexBounds.xy) / uTexBounds.zw: the
+// whole part of t names the page and the fraction is the position in it. When
+// the page size is not a power of two, t is rounded, and a sample on a texel
+// edge (a sprite at a half-pixel position) can land on the neighbouring texel.
 const AtlasPagesGLSL = `
 uniform float uAtlasPages;
+uniform float uAtlasSmooth;
 uniform sampler2D uAtlasPage1;
 uniform sampler2D uAtlasPage2;
 uniform sampler2D uAtlasPage3;
@@ -34,12 +43,7 @@ uniform sampler2D uAtlasPage5;
 uniform sampler2D uAtlasPage6;
 uniform sampler2D uAtlasPage7;
 
-vec4 pixelTexture(vec2 t) {
-	if (uAtlasPages < 0.5) {
-		return texture(uTexture, t);
-	}
-	vec2 cell = floor(t);
-	vec2 at = t - cell;
+vec4 pixelPage(vec2 cell, vec2 at) {
 	int page = clamp(int(cell.x) + 4 * int(cell.y), 0, int(uAtlasPages) - 1);
 	// textureLod: the branch is not uniform, so implicit derivatives are
 	// undefined, and atlas pages have no mipmaps anyway.
@@ -51,6 +55,28 @@ vec4 pixelTexture(vec2 t) {
 	if (page == 5) return textureLod(uAtlasPage5, at, 0.0);
 	if (page == 6) return textureLod(uAtlasPage6, at, 0.0);
 	return textureLod(uAtlasPage7, at, 0.0);
+}
+
+vec4 pixelTexture(vec2 t) {
+	if (uAtlasPages < 0.5) {
+		return texture(uTexture, t);
+	}
+	vec2 cell = floor(t);
+	return pixelPage(cell, t - cell);
+}
+
+vec4 pixelTexel(vec2 c) {
+	c -= uTexBounds.xy;
+	vec2 size = uTexBounds.zw;
+	if (uAtlasPages < 0.5) {
+		return texture(uTexture, c / size);
+	}
+	vec2 cell = floor(c / size);
+	vec2 local = c - cell * size;
+	if (uAtlasSmooth < 0.5) {
+		local = floor(local) + 0.5;
+	}
+	return pixelPage(cell, local / size);
 }
 `
 

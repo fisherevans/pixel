@@ -38,6 +38,8 @@ type GLShader struct {
 	// It changes only when a paged picture is drawn, so it is set then and
 	// not before every draw: on the web each uniform is a JS call.
 	atlasPages float32
+	// atlasSmooth is the value uAtlasSmooth holds, set with uAtlasPages.
+	atlasSmooth float32
 }
 
 type gsUniformAttr struct {
@@ -95,6 +97,12 @@ func NewGLShader(fragmentShader string) *GLShader {
 		value:    float32(0),
 		constant: true,
 	})
+	gs.uniforms = append(gs.uniforms, gsUniformAttr{
+		Name:     "uAtlasSmooth",
+		Type:     glhf.Float,
+		value:    float32(0),
+		constant: true,
+	})
 	for i := 1; i < pixel.PagedPictureMaxPages; i++ {
 		gs.uniforms = append(gs.uniforms, gsUniformAttr{
 			Name:     fmt.Sprintf("uAtlasPage%d", i),
@@ -111,7 +119,7 @@ func NewGLShader(fragmentShader string) *GLShader {
 
 // Update reinitialize GLShader data and recompile the underlying gl shader object
 func (gs *GLShader) Update() {
-	gs.pages = strings.Contains(gs.fs, "pixelTexture(")
+	gs.pages = strings.Contains(gs.fs, "pixelTexture(") || strings.Contains(gs.fs, "pixelTexel(")
 	for i := range gs.uniforms {
 		if gs.uniforms[i].isSampler {
 			gs.uniforms[i].used = strings.Contains(gs.fs, gs.uniforms[i].Name)
@@ -145,6 +153,7 @@ func (gs *GLShader) Update() {
 		}
 		shader.End()
 		gs.atlasPages = 0
+		gs.atlasSmooth = 0
 	})
 
 	gs.s = shader
@@ -419,8 +428,7 @@ void main() {
 	} else {
 		fragColor = vec4(0.0, 0.0, 0.0, 0.0);
 		fragColor += (1.0 - vIntensity) * vColor;
-		vec2 t = (vTexCoords - uTexBounds.xy) / uTexBounds.zw;
-		fragColor += vIntensity * vColor * pixelTexture(t);
+		fragColor += vIntensity * vColor * pixelTexel(vTexCoords);
 		fragColor *= uColorMask;
 	}
 }
@@ -436,4 +444,20 @@ func (gs *GLShader) setAtlasPages(n float32) {
 		gs.s.SetUniformAttr(loc, n)
 	}
 	gs.atlasPages = n
+}
+
+// setAtlasSmooth sets uAtlasSmooth (1 for a smoothed draw) if it differs from
+// what the program holds. The shader must be bound.
+func (gs *GLShader) setAtlasSmooth(smooth bool) {
+	var v float32
+	if smooth {
+		v = 1
+	}
+	if gs.atlasSmooth == v {
+		return
+	}
+	if loc := gs.getUniform("uAtlasSmooth"); loc > -1 {
+		gs.s.SetUniformAttr(loc, v)
+	}
+	gs.atlasSmooth = v
 }

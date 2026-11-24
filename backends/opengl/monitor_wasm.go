@@ -13,9 +13,9 @@ type VideoMode struct {
 	RefreshRate int
 }
 
-func PrimaryMonitor() *Monitor    { return &Monitor{} }
-func Monitors() []*Monitor        { return []*Monitor{{}} }
-func (m *Monitor) Name() string   { return "Browser" }
+func PrimaryMonitor() *Monitor  { return &Monitor{} }
+func Monitors() []*Monitor      { return []*Monitor{{}} }
+func (m *Monitor) Name() string { return "Browser" }
 func (m *Monitor) PhysicalSize() (width, height float64) {
 	return 0, 0
 }

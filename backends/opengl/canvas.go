@@ -357,6 +357,7 @@ func (ct *canvasTriangles) drawPages(tex *glhf.Texture, pages []*glhf.Texture, b
 		}
 
 		ct.shader.setAtlasPages(float32(len(pages)))
+		ct.shader.setAtlasSmooth(smt)
 
 		for loc, u := range ct.shader.uniforms {
 			if u.constant {
@@ -419,7 +420,7 @@ func (cp *canvasPicture) Draw(t pixel.TargetTriangles) {
 	}
 	if pp, ok := cp.GLPicture.(*glPagedPicture); ok {
 		if len(pp.texs) > 1 && !ct.shader.pages {
-			panic(fmt.Errorf("(%T).Draw: a multi-page picture needs a fragment shader that samples with pixelTexture (see AtlasPagesGLSL)", cp))
+			panic(fmt.Errorf("(%T).Draw: a multi-page picture needs a fragment shader that samples with pixelTexel or pixelTexture (see AtlasPagesGLSL)", cp))
 		}
 		size := pp.src.PageSize()
 		ct.drawPages(pp.texs[0], pp.texs, pixel.R(0, 0, size.X, size.Y))

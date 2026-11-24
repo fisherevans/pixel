@@ -80,8 +80,8 @@ type Window struct {
 	activeTouches map[int]pixel.Vec // keyed by Touch.identifier; updated by touch event handlers
 	touchCount    int               // number of currently-held touches; guards MouseButton1 edge detection
 
-	input                      internal.InputHandler
-	prevJoy, currJoy, tempJoy  internal.JoystickState
+	input                     internal.InputHandler
+	prevJoy, currJoy, tempJoy internal.JoystickState
 
 	buttonCallback       func(win *Window, button pixel.Button, action pixel.Action)
 	charCallback         func(win *Window, r rune)
@@ -102,9 +102,9 @@ func NewWindow(cfg WindowConfig) (*Window, error) {
 	}
 
 	gl := jsCanvas.Call("getContext", "webgl2", map[string]any{
-		"alpha":              false,
-		"antialias":          cfg.SamplesMSAA > 0,
-		"premultipliedAlpha": true,
+		"alpha":                 false,
+		"antialias":             cfg.SamplesMSAA > 0,
+		"premultipliedAlpha":    true,
 		"preserveDrawingBuffer": false,
 	})
 	if !gl.Truthy() {
@@ -280,10 +280,10 @@ func awaitAnimationFrame() {
 
 // Closed reports whether the window has been explicitly closed. The browser
 // tab closing terminates the Go runtime, so this only reflects SetClosed.
-func (w *Window) Closed() bool              { return w.closed }
-func (w *Window) SetClosed(closed bool)     { w.closed = closed }
+func (w *Window) Closed() bool          { return w.closed }
+func (w *Window) SetClosed(closed bool) { w.closed = closed }
 
-func (w *Window) Bounds() pixel.Rect        { return w.bounds }
+func (w *Window) Bounds() pixel.Rect { return w.bounds }
 func (w *Window) SetBounds(bounds pixel.Rect) {
 	w.bounds = bounds
 	_, _, width, height := intBounds(bounds)
@@ -293,8 +293,8 @@ func (w *Window) SetBounds(bounds pixel.Rect) {
 }
 func (w *Window) SetBoundsLimits(pixel.Rect) {}
 
-func (w *Window) SetPos(pixel.Vec)    {}
-func (w *Window) GetPos() pixel.Vec   { return pixel.ZV }
+func (w *Window) SetPos(pixel.Vec)  {}
+func (w *Window) GetPos() pixel.Vec { return pixel.ZV }
 func (w *Window) SetTitle(title string) {
 	js.Global().Get("document").Set("title", title)
 }
@@ -333,8 +333,8 @@ func (w *Window) SetCursorDisabled() {
 }
 func (w *Window) CursorVisible() bool { return w.cursorVisible }
 
-func (w *Window) SetMonitor(*Monitor)      {}
-func (w *Window) Monitor() *Monitor         { return nil }
+func (w *Window) SetMonitor(*Monitor) {}
+func (w *Window) Monitor() *Monitor   { return nil }
 
 // Note: must be called before any GL work. Kept for parity with desktop.
 func (w *Window) begin() {

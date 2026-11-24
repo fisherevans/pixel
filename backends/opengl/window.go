@@ -578,7 +578,6 @@ func (w *Window) SetClipboard(str string) {
 	})
 }
 
-
 // ActiveTouches returns the positions of all currently held touch points in
 // window-local pixel coordinates. Desktop builds have no touch hardware, so
 // this always returns nil; use win.Pressed(pixel.MouseButton1) for mouse input.

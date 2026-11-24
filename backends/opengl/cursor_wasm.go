@@ -26,6 +26,6 @@ const (
 // the mouse cursor itself.
 type Cursor struct{}
 
-func CreateStandardCursor(StandardCursor) *Cursor       { return &Cursor{} }
-func CreateCursorImage(image.Image, pixel.Vec) *Cursor  { return &Cursor{} }
-func (w *Window) SetCursor(*Cursor)                     {}
+func CreateStandardCursor(StandardCursor) *Cursor      { return &Cursor{} }
+func CreateCursorImage(image.Image, pixel.Vec) *Cursor { return &Cursor{} }
+func (w *Window) SetCursor(*Cursor)                    {}
