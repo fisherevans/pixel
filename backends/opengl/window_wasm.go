@@ -207,8 +207,9 @@ func (w *Window) Destroy() {
 func (w *Window) Update() {
 	w.syncCanvasSize()
 	w.SwapBuffers()
-	w.UpdateInput()
 	awaitAnimationFrame()
+	// Commit events delivered while the browser waited for this frame.
+	w.UpdateInput()
 }
 
 // syncCanvasSize updates the canvas backing store to match its current CSS size
