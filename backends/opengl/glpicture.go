@@ -3,6 +3,7 @@ package opengl
 import (
 	"math"
 	"sync"
+	"unsafe"
 
 	"github.com/gopxl/glhf/v2"
 	"github.com/gopxl/mainthread/v2"
@@ -20,13 +21,12 @@ type GLPicture interface {
 }
 
 // pictureDataGLCache memoizes GLPicture uploads keyed by source *pixel.PictureData.
-// Without this, every (sprite, canvas) pair re-uploads and retains a full-size pixel
-// copy; on 32-bit WASM (~4GB heap) a 4096x4096 atlas blows the heap after a handful
-// of draw targets.
+// A source shares both its CPU pixels and its texture across draw targets.
 var pictureDataGLCache sync.Map // *pixel.PictureData -> GLPicture
 
-// NewGLPicture creates a new GLPicture with it's own static OpenGL texture. This function always
-// allocates a new texture that cannot (shouldn't) be further modified.
+// NewGLPicture creates a GLPicture with a static OpenGL texture, reusing the upload
+// for a *pixel.PictureData source. Callers that update a picture must update both
+// the source pixels and the associated texture.
 //
 // A *pixel.PagedPictureData gets one texture per page; see AtlasPagesGLSL.
 func NewGLPicture(p pixel.Picture) GLPicture {
@@ -41,56 +41,64 @@ func NewGLPicture(p pixel.Picture) GLPicture {
 	bounds := p.Bounds()
 	bx, by, bw, bh := intBounds(bounds)
 
-	pixels := make([]uint8, 4*bw*bh)
-
-	if pd, ok := p.(*pixel.PictureData); ok {
-		// PictureData short path
-		for y := 0; y < bh; y++ {
-			for x := 0; x < bw; x++ {
-				rgba := pd.Pix[y*pd.Stride+x]
-				off := (y*bw + x) * 4
-				pixels[off+0] = rgba.R
-				pixels[off+1] = rgba.G
-				pixels[off+2] = rgba.B
-				pixels[off+3] = rgba.A
-			}
-		}
-	} else if p, ok := p.(pixel.PictureColor); ok {
-		for y := 0; y < bh; y++ {
-			for x := 0; x < bw; x++ {
-				at := pixel.V(
-					math.Max(float64(bx+x), bounds.Min.X),
-					math.Max(float64(by+y), bounds.Min.Y),
-				)
-				color := p.Color(at)
-				off := (y*bw + x) * 4
-				pixels[off+0] = uint8(color.R * 255)
-				pixels[off+1] = uint8(color.G * 255)
-				pixels[off+2] = uint8(color.B * 255)
-				pixels[off+3] = uint8(color.A * 255)
+	gp := &glPicture{bounds: bounds}
+	pd, _ := p.(*pixel.PictureData)
+	var pixels []byte
+	if pd != nil {
+		gp.source = pd
+		pixels = pictureDataUploadBytes(pd, bw, bh)
+	} else {
+		pixels = make([]byte, 4*bw*bh)
+		gp.pixels = pixels
+		if source, ok := p.(pixel.PictureColor); ok {
+			for y := 0; y < bh; y++ {
+				for x := 0; x < bw; x++ {
+					at := pixel.V(
+						math.Max(float64(bx+x), bounds.Min.X),
+						math.Max(float64(by+y), bounds.Min.Y),
+					)
+					color := source.Color(at)
+					off := (y*bw + x) * 4
+					pixels[off+0] = uint8(color.R * 255)
+					pixels[off+1] = uint8(color.G * 255)
+					pixels[off+2] = uint8(color.B * 255)
+					pixels[off+3] = uint8(color.A * 255)
+				}
 			}
 		}
 	}
-
-	var tex *glhf.Texture
 	mainthread.Call(func() {
-		tex = glhf.NewTexture(bw, bh, false, pixels)
+		gp.tex = glhf.NewTexture(bw, bh, false, pixels)
 	})
-
-	gp := &glPicture{
-		bounds: bounds,
-		tex:    tex,
-		pixels: pixels,
-	}
-	if pd, ok := p.(*pixel.PictureData); ok {
+	if pd != nil {
 		pictureDataGLCache.Store(pd, gp)
 	}
 	return gp
 }
 
+// PictureData stores premultiplied RGBA8 in upload orientation. The backend
+// consumes the bytes before NewTexture returns. Compact padded rows only when
+// needed, and let Color keep using the source after the upload.
+func pictureDataUploadBytes(pd *pixel.PictureData, width, height int) []byte {
+	const pixelSize = int(unsafe.Sizeof(pd.Pix[0]))
+	var _ [4]byte = [pixelSize]byte{}
+	raw := unsafe.Slice((*byte)(unsafe.Pointer(unsafe.SliceData(pd.Pix))), len(pd.Pix)*pixelSize)
+	rowBytes := width * pixelSize
+	if pd.Stride == width {
+		return raw[:rowBytes*height]
+	}
+	pixels := make([]byte, rowBytes*height)
+	for y := 0; y < height; y++ {
+		start := y * pd.Stride * pixelSize
+		copy(pixels[y*rowBytes:(y+1)*rowBytes], raw[start:start+rowBytes])
+	}
+	return pixels
+}
+
 type glPicture struct {
 	bounds pixel.Rect
 	tex    *glhf.Texture
+	source *pixel.PictureData
 	pixels []uint8
 }
 
@@ -103,6 +111,9 @@ func (gp *glPicture) Texture() *glhf.Texture {
 }
 
 func (gp *glPicture) Color(at pixel.Vec) pixel.RGBA {
+	if gp.source != nil {
+		return gp.source.Color(at)
+	}
 	if !gp.bounds.Contains(at) {
 		return pixel.Alpha(0)
 	}
